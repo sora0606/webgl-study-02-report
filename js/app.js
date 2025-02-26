@@ -4,6 +4,12 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import vertex from "./shader/vertex.glsl"
 import fragment from "./shader/fragment.glsl"
 
+import vertexSun from "./shaderSun/vertex.glsl"
+import fragmentSun from "./shaderSun/fragment.glsl"
+
+import vertexAround from "./shaderAround/vertex.glsl"
+import fragmentAround from "./shaderAround/fragment.glsl"
+
 import dat from "dat.gui";
 
 export default class Sketch {
@@ -15,9 +21,9 @@ export default class Sketch {
         this.height = this.container.offsetHeight;
 
         this.renderer = new THREE.WebGLRenderer();
-        this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        this.renderer.setPixelRatio(window.devicePixelRatio);
         this.renderer.setSize(this.width, this.height);
-        this.renderer.setClearColor(0xeeeeee, 1);
+        this.renderer.setClearColor(0x000000, 1);
 
         this.container.appendChild(this.renderer.domElement);
 
@@ -35,11 +41,13 @@ export default class Sketch {
 
         this.isPlaying = true;
 
+        this.addAround();
+        this.addTexture();
         this.addObjects();
         this.resize();
         this.render();
         this.setupResize();
-        this.settings();
+        // this.settings();
     }
 
     settings() {
@@ -65,9 +73,40 @@ export default class Sketch {
         this.camera.updateProjectionMatrix();
     }
 
-    addObjects() {
-        let that = this;
-        this.material = new THREE.ShaderMaterial({
+    addAround() {
+        this.materialAround = new THREE.ShaderMaterial({
+            extensions: {
+                derivatives: "#extension GL_OES_standard_derivatives : enable"
+            },
+            side: THREE.BackSide,
+            uniforms: {
+                time: { value: 0 },
+                uPerlin: { value: null },
+                resolution: { value: new THREE.Vector4() },
+            },
+            transparent: true,
+            vertexShader: vertexAround,
+            fragmentShader: fragmentAround,
+        });
+
+        this.geometryAround = new THREE.SphereGeometry(1.13, 64.0, 32.0);
+
+        this.sunAround = new THREE.Mesh(this.geometryAround, this.materialAround);
+        this.scene.add(this.sunAround);
+    }
+
+    addTexture() {
+        this.scene1 = new THREE.Scene();
+        this.cubeRenderTarget1 = new THREE.WebGLCubeRenderTarget(256, {
+            format: THREE.RGBAFormat,
+            generateMipmaps: true,
+            minFilter: THREE.LinearMipMapLinearFilter,
+            encoding: THREE.sRGBEncoding,
+        });
+
+        this.cubeCamera1 = new THREE.CubeCamera(0.1, 10.0, this.cubeRenderTarget1);
+
+        this.materialPerlin = new THREE.ShaderMaterial({
             extensions: {
                 derivatives: "#extension GL_OES_standard_derivatives : enable"
             },
@@ -82,19 +121,31 @@ export default class Sketch {
             fragmentShader: fragment,
         });
 
-        this.geometry = new THREE.PlaneGeometry(1.0, 1.0, 1.0, 1.0);
+        this.geometryPerlin = new THREE.SphereGeometry(1.0, 64.0, 32.0);
 
-        this.plane = new THREE.Mesh(this.geometry, this.material);
-        this.scene.add(this.plane);
+        this.perlin = new THREE.Mesh(this.geometryPerlin, this.materialPerlin);
+        this.scene1.add(this.perlin);
     }
 
-    addLight(){
-        const light1 = new THREE.AmbientLight(0xffffff, 0.5);
-        this.scene.add(light1);
+    addObjects() {
+        this.materialSun = new THREE.ShaderMaterial({
+            extensions: {
+                derivatives: "#extension GL_OES_standard_derivatives : enable"
+            },
+            side: THREE.DoubleSide,
+            uniforms: {
+                time: { value: 0 },
+                uPerlin: { value: null },
+                resolution: { value: new THREE.Vector4() },
+            },
+            vertexShader: vertexSun,
+            fragmentShader: fragmentSun,
+        });
 
-        const light2 = new THREE.DirectionalLight(0xffffff, 0.5);
-        light2.position.set(0.5, 0.0, 0.866)
-        this.scene.add(light2);
+        this.geometrySun = new THREE.SphereGeometry(1.0, 64.0, 32.0);
+
+        this.sun = new THREE.Mesh(this.geometrySun, this.materialSun);
+        this.scene.add(this.sun);
     }
 
     stop() {
@@ -110,7 +161,13 @@ export default class Sketch {
 
     render() {
         if (!this.isPlaying) return;
-        this.time += 0.01;
+
+        this.cubeCamera1.update(this.renderer, this.scene1);
+        this.materialSun.uniforms.uPerlin.value = this.cubeRenderTarget1.texture;
+
+        this.time += 0.05;
+        this.materialSun.uniforms.time.value = this.time;
+        this.materialPerlin.uniforms.time.value = this.time;
 
         requestAnimationFrame(this.render.bind(this));
         this.renderer.render(this.scene, this.camera);
